@@ -1,0 +1,355 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, Download, RefreshCw, Film, ArrowRight } from 'lucide-react';
+import { NormalizedRegistration } from '../types.ts';
+import { EVENTS_REGISTRY } from '../config/events.ts';
+import { useTheme } from '../context/ThemeContext.tsx';
+
+interface MasterDatabaseProps {
+  onSelectRecord: (record: NormalizedRegistration) => void;
+  onSelectEvent: (eventId: string) => void;
+}
+
+export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
+  onSelectRecord,
+  onSelectEvent,
+}) => {
+  const { theme } = useTheme();
+  const [records, setRecords] = useState<NormalizedRegistration[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState<string>('ALL');
+  const [selectedType, setSelectedType] = useState<string>('ALL');
+  const [onlySubmissions, setOnlySubmissions] = useState(false);
+
+  const fetchDatabase = async (force = false) => {
+    try {
+      if (force) setRefreshing(true);
+      else setLoading(true);
+
+      const res = await fetch(`/api/database${force ? '?refresh=true' : ''}`);
+      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+      const json = await res.json();
+      if (json.success) {
+        setRecords(json.data.records);
+      }
+    } catch (err) {
+      console.error('Failed to load master database:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDatabase(false);
+  }, []);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((r) => {
+      // Event filter
+      if (selectedEventId !== 'ALL' && r.eventId !== selectedEventId) return false;
+
+      // Type filter
+      if (selectedType !== 'ALL' && r.type !== selectedType) return false;
+
+      // Submissions only
+      if (onlySubmissions && (!r.submissions || r.submissions.length === 0)) return false;
+
+      // Search query
+      if (!query.trim()) return true;
+      const q = query.toLowerCase();
+
+      const inName = r.displayName.toLowerCase().includes(q);
+      const inCollege = (r.college || '').toLowerCase().includes(q);
+      const inEvent = r.eventName.toLowerCase().includes(q);
+      const inEmail = r.emails.some((e) => e.toLowerCase().includes(q));
+      const inContact = r.contacts.some((c) => c.toLowerCase().includes(q));
+      const inParticipants = r.participants.some((p) => p.name.toLowerCase().includes(q));
+      const inId = r.id.toLowerCase().includes(q);
+
+      return inName || inCollege || inEvent || inEmail || inContact || inParticipants || inId;
+    });
+  }, [records, selectedEventId, selectedType, onlySubmissions, query]);
+
+  const handleExportCSV = () => {
+    if (filteredRecords.length === 0) return;
+    const headers = ['Entry ID', 'Event ID', 'Event Name', 'Participant / Team', 'Type', 'College', 'Emails', 'Contacts', 'Submissions', 'Timestamp'];
+    const rows = filteredRecords.map((r) => [
+      `"${r.id}"`,
+      `"${r.eventId}"`,
+      `"${r.eventName}"`,
+      `"${r.displayName}"`,
+      `"${r.type}"`,
+      `"${r.college || ''}"`,
+      `"${r.emails.join('; ')}"`,
+      `"${r.contacts.join('; ')}"`,
+      `"${r.submissions.map((s) => s.url).join('; ')}"`,
+      `"${r.timestamp || ''}"`,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ARB26_CULTS_DATABASE_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto px-6 sm:px-12 py-8 sm:py-12 font-outfit">
+      {/* Header */}
+      <div
+        className="border-b pb-6 mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6"
+        style={{ borderColor: theme.colors.border }}
+      >
+        <div>
+          <div
+            className="text-xs font-medium tracking-wider uppercase mb-1"
+            style={{ color: theme.colors.muted }}
+          >
+            ATHARV RANBHOOMI &apos;26 • MASTER REGISTRY
+          </div>
+          <h1
+            className="text-3xl sm:text-5xl font-extrabold tracking-tight uppercase"
+            style={{ color: theme.colors.text }}
+          >
+            DATABASE
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchDatabase(true)}
+            disabled={refreshing || loading}
+            className="px-4 py-2 border transition-all text-xs font-medium tracking-wider uppercase inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 hover:brightness-95"
+            style={{
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.border,
+              color: theme.colors.text,
+            }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'SYNCING...' : 'SYNC ALL SHEETS'}</span>
+          </button>
+
+          <button
+            onClick={handleExportCSV}
+            className="px-4 py-2 text-white transition-all text-xs font-medium tracking-wider uppercase inline-flex items-center gap-2 cursor-pointer hover:brightness-110"
+            style={{ backgroundColor: theme.colors.accent }}
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>EXPORT CSV</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Query & Filter Bar */}
+      <div
+        className="border p-4 sm:p-6 mb-8 space-y-4"
+        style={{
+          backgroundColor: theme.colors.surface,
+          borderColor: theme.colors.border,
+        }}
+      >
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2" style={{ color: theme.colors.muted }} />
+          <input
+            type="text"
+            placeholder="SEARCH BY NAME, COLLEGE, EMAIL, OR RECORD ID..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full border py-2.5 pl-11 pr-4 text-xs sm:text-sm outline-hidden uppercase tracking-wider font-normal"
+            style={{
+              backgroundColor: theme.colors.bg,
+              borderColor: theme.colors.border,
+              color: theme.colors.text,
+            }}
+          />
+        </div>
+
+        <div
+          className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t"
+          style={{ borderColor: theme.colors.border }}
+        >
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            {/* Event Filter */}
+            <div className="flex items-center gap-2">
+              <span className="uppercase text-xs font-medium" style={{ color: theme.colors.muted }}>
+                EVENT:
+              </span>
+              <select
+                value={selectedEventId}
+                onChange={(e) => setSelectedEventId(e.target.value)}
+                className="border px-3 py-1.5 text-xs font-normal outline-hidden uppercase cursor-pointer"
+                style={{
+                  backgroundColor: theme.colors.bg,
+                  borderColor: theme.colors.border,
+                  color: theme.colors.text,
+                }}
+              >
+                <option value="ALL">ALL 15 EVENTS</option>
+                {EVENTS_REGISTRY.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.number} {e.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Type Filter */}
+            <div className="flex items-center gap-2">
+              <span className="uppercase text-xs font-medium" style={{ color: theme.colors.muted }}>
+                TYPE:
+              </span>
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="border px-3 py-1.5 text-xs font-normal outline-hidden uppercase cursor-pointer"
+                style={{
+                  backgroundColor: theme.colors.bg,
+                  borderColor: theme.colors.border,
+                  color: theme.colors.text,
+                }}
+              >
+                <option value="ALL">ALL TYPES</option>
+                <option value="team">TEAM</option>
+                <option value="individual">INDIVIDUAL</option>
+                <option value="solo">SOLO</option>
+                <option value="duet">DUET</option>
+              </select>
+            </div>
+
+            {/* Only Submissions toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={onlySubmissions}
+                onChange={(e) => setOnlySubmissions(e.target.checked)}
+              />
+              <span className="uppercase text-xs font-medium" style={{ color: theme.colors.text }}>
+                SUBMISSIONS ONLY
+              </span>
+            </label>
+          </div>
+
+          <div className="text-xs font-normal" style={{ color: theme.colors.muted }}>
+            SHOWING <span className="font-semibold" style={{ color: theme.colors.text }}>{filteredRecords.length}</span> OF{' '}
+            <span className="font-semibold" style={{ color: theme.colors.text }}>{records.length}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="py-20 flex flex-col items-center justify-center gap-4" style={{ color: theme.colors.muted }}>
+          <RefreshCw className="w-6 h-6 animate-spin" style={{ color: theme.colors.accent }} />
+          <div className="text-xs tracking-wider uppercase font-medium">
+            LOADING LIVE DATABASE...
+          </div>
+        </div>
+      ) : filteredRecords.length > 0 ? (
+        <div className="overflow-x-auto border" style={{ borderColor: theme.colors.border }}>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr
+                className="border-b text-xs font-medium uppercase tracking-wider"
+                style={{
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                  color: theme.colors.muted,
+                }}
+              >
+                <th className="py-3 px-4 w-12 font-medium">#</th>
+                <th className="py-3 px-4 w-36 font-medium">EVENT</th>
+                <th className="py-3 px-4 w-32 font-medium">ENTRY ID</th>
+                <th className="py-3 px-4 font-medium">PARTICIPANT / TEAM</th>
+                <th className="py-3 px-4 font-medium">INSTITUTION</th>
+                <th className="py-3 px-4 w-36 font-medium">CONTACT</th>
+                <th className="py-3 px-4 w-28 text-center font-medium">SUBMISSION</th>
+                <th className="py-3 px-4 w-16 text-right font-medium"></th>
+              </tr>
+            </thead>
+            <tbody
+              className="divide-y text-xs"
+              style={{
+                backgroundColor: theme.colors.bg,
+                borderColor: theme.colors.border,
+              }}
+            >
+              {filteredRecords.map((r, idx) => (
+                <tr
+                  key={r.id || idx}
+                  onClick={() => onSelectRecord(r)}
+                  className="hover:brightness-95 cursor-pointer transition-all group"
+                  style={{ borderTopColor: theme.colors.border }}
+                >
+                  <td className="py-3.5 px-4 font-light" style={{ color: theme.colors.muted }}>
+                    {(idx + 1).toString().padStart(2, '0')}
+                  </td>
+                  <td className="py-3.5 px-4 font-semibold">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectEvent(r.eventId);
+                      }}
+                      className="hover:underline uppercase text-left cursor-pointer transition-colors"
+                      style={{ color: theme.colors.text }}
+                    >
+                      {r.eventName}
+                    </button>
+                  </td>
+                  <td className="py-3.5 px-4 font-normal" style={{ color: theme.colors.muted }}>
+                    {r.id}
+                  </td>
+                  <td
+                    className="py-3.5 px-4 font-semibold text-sm uppercase group-hover:pl-1 transition-all"
+                    style={{ color: theme.colors.text }}
+                  >
+                    {r.displayName}
+                  </td>
+                  <td className="py-3.5 px-4 truncate max-w-xs font-normal" style={{ color: theme.colors.muted }}>
+                    {r.college || 'N/A'}
+                  </td>
+                  <td className="py-3.5 px-4 font-normal" style={{ color: theme.colors.muted }}>
+                    {(r.contacts && r.contacts[0]) || (r.emails && r.emails[0] && typeof r.emails[0] === 'string' ? r.emails[0].split('@')[0] : 'N/A')}
+                  </td>
+                  <td className="py-3.5 px-4 text-center">
+                    {r.submissions && r.submissions.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium" style={{ color: theme.colors.accent }}>
+                        <Film className="w-3 h-3" />
+                        <span>LINK</span>
+                      </span>
+                    ) : (
+                      <span style={{ color: theme.colors.border }}>/</span>
+                    )}
+                  </td>
+                  <td className="py-3.5 px-4 text-right">
+                    <ArrowRight
+                      className="w-4 h-4 ml-auto transition-transform group-hover:translate-x-0.5 opacity-40 group-hover:opacity-100"
+                      style={{ color: theme.colors.accent }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div
+          className="py-16 text-center border"
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.border,
+          }}
+        >
+          <p className="text-xs uppercase font-normal" style={{ color: theme.colors.muted }}>
+            NO RECORDS MATCH YOUR SEARCH CRITERIA.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};

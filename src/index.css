@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-parchment: #FFFFFF;
+    --text-charcoal: #0A0A0A;
+    --accent-maroon: #8B0000;
+    --accent-maroon-hover: #B91C1C;
+    --muted-grey: #6B7280;
+    --hairline-gray: #E5E7EB;
+    --surface-ivory: #F9FAFB;
+  }
+
+  * {
+    font-family: 'SF Pro', New York;
+  }
+
+  body {
+    background-color: var(--bg-parchment, #FFFFFF);
+    color: var(--text-charcoal, #0A0A0A);
+    font-family: 'SF Pro', New York;
+  }
+
+  h1, h2, h3, h4, h5, h6, input, button, select, textarea {
+    font-family: 'SF Pro', New York;
+  }
+}
+
+.font-outfit {
+  font-family: 'SF Pro', New York;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--hairline-gray, #E5E7EB);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-maroon, #8B0000);
+}
