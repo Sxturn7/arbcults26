@@ -1,7 +1,7 @@
 import express from 'express';
 import { EVENTS_REGISTRY } from '../src/config/events.ts';
-import { fetchEventData, fetchAllEventsDatabase, fetchOverviewMetrics } from '../server/sheetFetcher.ts';
-import { fetchLivePOCs } from '../server/pocFetcher.ts';
+import { fetchEventData, fetchAllEventsDatabase, fetchOverviewMetrics } from './sheetFetcher.ts';
+import { fetchLivePOCs } from './pocFetcher.ts';
 
 const app = express();
 
