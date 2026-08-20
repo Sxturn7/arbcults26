@@ -8,13 +8,16 @@ import { GlobalSearch } from './components/GlobalSearch.tsx';
 import { RegistrationDetail } from './components/RegistrationDetail.tsx';
 import { POCOverlay } from './components/POCOverlay.tsx';
 import { ThemeModal } from './components/ThemeModal.tsx';
+import { AccessSelection } from './components/AccessSelection.tsx';
 import { PixelSnow } from './components/reactbits/PixelSnow.tsx';
 import { ViewMode, NormalizedRegistration, EventConfig, POC } from './types.ts';
 import { getEventById } from './config/events.ts';
+import { AccessRole } from './config/access.ts';
 import { ThemeProvider, useTheme } from './context/ThemeContext.tsx';
 
 function AppContent() {
   const { theme, themeId } = useTheme();
+  const [accessRole, setAccessRole] = useState<AccessRole | null>(null);
   const [currentView, setCurrentView] = useState<ViewMode>('events');
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<NormalizedRegistration | null>(null);
@@ -43,7 +46,19 @@ function AppContent() {
     setPocModalCustomPocs(customPocs);
   };
 
+  const handleExitAccess = () => {
+    setAccessRole(null);
+    setSelectedEventId(null);
+    setSelectedRecord(null);
+    setCurrentView('events');
+  };
+
   const isDark = themeId === 'black';
+
+  // If no portal role selected yet, display the Event Cults Landing / Access Gate
+  if (!accessRole) {
+    return <AccessSelection onSelectRole={(role) => setAccessRole(role)} />;
+  }
 
   return (
     <div
@@ -82,13 +97,15 @@ function AppContent() {
         </div>
       )}
 
-      {/* Top Fixed Header */}
+      {/* Top Fixed Header with Role indicator and Return button */}
       <div className="relative z-10">
         <Header
           currentView={currentView}
           onViewChange={handleViewChange}
           onSelectEvent={handleSelectEvent}
           onOpenThemeModal={() => setThemeModalOpen(true)}
+          accessRole={accessRole}
+          onExitAccess={handleExitAccess}
         />
       </div>
 
@@ -103,9 +120,13 @@ function AppContent() {
                 onSelectRecord={(rec) => setSelectedRecord(rec)}
                 onOpenPOCs={handleOpenPOCs}
                 onSelectEvent={(id) => handleSelectEvent(id)}
+                accessRole={accessRole}
               />
             ) : (
-              <EventList onSelectEvent={(id) => handleSelectEvent(id)} />
+              <EventList
+                onSelectEvent={(id) => handleSelectEvent(id)}
+                accessRole={accessRole}
+              />
             )}
           </>
         )}
@@ -114,6 +135,7 @@ function AppContent() {
           <MasterDatabase
             onSelectRecord={(rec) => setSelectedRecord(rec)}
             onSelectEvent={(eventId) => handleSelectEvent(eventId)}
+            accessRole={accessRole}
           />
         )}
 
@@ -121,6 +143,7 @@ function AppContent() {
           <GlobalSearch
             onSelectRecord={(rec) => setSelectedRecord(rec)}
             onSelectEvent={(eventId) => handleSelectEvent(eventId)}
+            accessRole={accessRole}
           />
         )}
       </main>
@@ -131,6 +154,7 @@ function AppContent() {
           record={selectedRecord}
           onClose={() => setSelectedRecord(null)}
           onOpenPOCs={(evt) => handleOpenPOCs(evt)}
+          accessRole={accessRole}
         />
       )}
 
