@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, ArrowRight } from 'lucide-react';
-import { EVENTS_REGISTRY } from '../config/events.ts';
+import { ArrowRight, RefreshCw, BookOpen, ExternalLink, Phone } from 'lucide-react';
+import { EVENTS_REGISTRY, getRuleBookUrl, eventCultsBrochureUrl } from '../config/events.ts';
 import { OverviewMetrics, EventStat } from '../types.ts';
+import { AccessRole } from '../config/access.ts';
 import { useTheme } from '../context/ThemeContext.tsx';
-import { FoldText } from './reactbits/FoldText.tsx';
+import { getOverviewMetrics } from '../services/dataService.ts';
+import { CountdownTimer } from './CountdownTimer.tsx';
 
 interface EventListProps {
   onSelectEvent: (eventId: string) => void;
+  accessRole?: AccessRole | null;
 }
 
-export const EventList: React.FC<EventListProps> = ({ onSelectEvent }) => {
+export const EventList: React.FC<EventListProps> = ({ onSelectEvent, accessRole }) => {
   const { theme, themeId } = useTheme();
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,14 +21,15 @@ export const EventList: React.FC<EventListProps> = ({ onSelectEvent }) => {
 
   const isDark = themeId === 'black';
   const logoSrc = isDark ? '/ATHARV RANBHOOMI black.png' : '/ATHARV RANBHOOMI white.png';
+  const isEC = accessRole === 'ec';
 
   const fetchMetrics = async (forceRefresh = false) => {
+    if (isEC) return; // EC does not fetch registration metrics
     setLoading(true);
     try {
-      const res = await fetch(`/api/overview${forceRefresh ? '?refresh=true' : ''}`);
-      const json = await res.json();
-      if (json.success && json.data) {
-        setMetrics(json.data);
+      const data = await getOverviewMetrics(forceRefresh);
+      if (data) {
+        setMetrics(data);
         setLastRefreshed(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       }
     } catch (err) {
@@ -36,8 +40,10 @@ export const EventList: React.FC<EventListProps> = ({ onSelectEvent }) => {
   };
 
   useEffect(() => {
-    fetchMetrics();
-  }, []);
+    if (!isEC) {
+      fetchMetrics();
+    }
+  }, [isEC]);
 
   // Keyboard navigation support across events
   useEffect(() => {
@@ -60,17 +66,11 @@ export const EventList: React.FC<EventListProps> = ({ onSelectEvent }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIndex, onSelectEvent]);
 
-  // Map stats by event ID for quick lookups
-  const statsMap = new Map<string, EventStat>();
-  if (metrics?.eventStats) {
-    metrics.eventStats.forEach((st) => statsMap.set(st.id, st));
-  }
-
+  // Render individual track item
   const renderEventItem = (event: typeof EVENTS_REGISTRY[0], globalIndex: number) => {
-    const stat = statsMap.get(event.id);
-    const regCount = stat ? stat.registrationCount : 0;
-    const subCount = stat ? stat.submissionCount : 0;
-    const pocCount = stat ? stat.pocCount : event.pocs.length;
+    const stat: EventStat | undefined = metrics?.eventStats?.find((e) => e.id === event.id);
+    const regCount = stat?.registrationCount ?? 0;
+    const subCount = stat?.submissionCount ?? 0;
     const isSelected = selectedIndex === globalIndex;
 
     return (
@@ -79,53 +79,69 @@ export const EventList: React.FC<EventListProps> = ({ onSelectEvent }) => {
         id={`event-item-${event.id}`}
         onClick={() => onSelectEvent(event.id)}
         onMouseEnter={() => setSelectedIndex(globalIndex)}
-        className={`px-4 py-3.5 sm:py-4 rounded-lg flex items-center justify-between group cursor-pointer transition-all duration-150 select-none ${
+        className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 group cursor-pointer transition-all duration-150 select-none shadow-2xs ${
           isSelected
-            ? (isDark ? 'bg-[#141414] translate-x-1.5' : 'bg-[#F2F2F2] translate-x-1.5')
-            : (isDark ? 'hover:bg-[#0E0E0E] hover:translate-x-1' : 'hover:bg-[#F8F8F8] hover:translate-x-1')
+            ? 'translate-x-1 ring-1 ring-offset-0'
+            : 'hover:translate-x-1'
         }`}
+        style={{
+          backgroundColor: theme.colors.surface,
+          borderColor: isSelected ? theme.colors.accent : theme.colors.border,
+        }}
       >
-        {/* Left: Oversized Event Number (Outfit 300 Light) + Event Name (Outfit 600 Semibold, never truncated) */}
-        <div className="flex items-baseline gap-4 sm:gap-6 min-w-0 pr-4">
+        {/* Left: Number, Title & Category */}
+        <div className="flex items-start gap-4 min-w-0 flex-1">
           <span
-            className="text-xl sm:text-2xl font-light tracking-tight shrink-0 select-none"
+            className="text-lg sm:text-2xl font-bold tracking-tight shrink-0 select-none"
             style={{ color: isSelected ? theme.colors.accent : theme.colors.muted }}
           >
             {event.number}
           </span>
-          <span
-            className="text-base sm:text-lg md:text-xl font-semibold tracking-tight uppercase leading-snug group-hover:text-[var(--accent-maroon)] transition-colors duration-150 break-words"
-            style={{ color: theme.colors.text }}
-          >
-            {event.name}
-          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h3
+                className="text-base sm:text-lg font-bold tracking-tight uppercase leading-snug group-hover:text-[var(--accent-maroon)] transition-colors"
+                style={{ color: theme.colors.text }}
+              >
+                {event.name}
+              </h3>
+              {event.categoryHint && (
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border"
+                  style={{
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.bg,
+                    color: theme.colors.muted,
+                  }}
+                >
+                  {event.categoryHint}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Right: Live POC count (Outfit 400) + Live Registrations (Outfit 700) + Arrow */}
-        <div className="flex items-center gap-4 sm:gap-6 shrink-0">
-          <span
-            className="hidden sm:inline text-xs font-normal uppercase tracking-wider"
-            style={{ color: theme.colors.muted }}
-          >
-            {pocCount} POCs
-          </span>
-
-          <div className="text-right">
-            <span
-              className="text-lg sm:text-xl font-bold tracking-tight transition-colors group-hover:text-[var(--accent-maroon)]"
-              style={{ color: theme.colors.text }}
-            >
-              {regCount}
-            </span>
-            {subCount > 0 && (
+        {/* Right: Actions */}
+        <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0">
+          {/* Registration & Submissions count only visible to Core Team */}
+          {!isEC && (
+            <div className="text-right min-w-[3.5rem]">
               <span
-                className="block text-[11px] font-normal uppercase tracking-wider transition-opacity opacity-80 group-hover:opacity-100"
-                style={{ color: theme.colors.accent }}
+                className="text-lg font-bold tracking-tight transition-colors group-hover:text-[var(--accent-maroon)]"
+                style={{ color: theme.colors.text }}
               >
-                {subCount} subs
+                {regCount}
               </span>
-            )}
-          </div>
+              {subCount > 0 && (
+                <span
+                  className="block text-[10px] font-semibold uppercase tracking-wider"
+                  style={{ color: theme.colors.accent }}
+                >
+                  {subCount} subs
+                </span>
+              )}
+            </div>
+          )}
 
           <ArrowRight
             className="w-4 h-4 transition-all duration-150 opacity-40 group-hover:opacity-100 group-hover:translate-x-1"
@@ -137,166 +153,205 @@ export const EventList: React.FC<EventListProps> = ({ onSelectEvent }) => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-6 sm:px-12 py-10 sm:py-14 font-outfit">
-      {/* Title & Large Logo Header Area with Outfit Typography */}
+    <div className="max-w-7xl mx-auto px-4 sm:px-8 md:px-12 py-6 sm:py-10 md:py-14 font-outfit">
+      {/* Title & Large Logo Header Area */}
       <div
-        className="flex flex-col md:flex-row md:items-center justify-between pb-10 mb-10 border-b gap-8"
+        className="flex flex-col-reverse sm:flex-row sm:items-center justify-between pb-6 sm:pb-10 mb-6 sm:mb-10 border-b gap-4 sm:gap-8"
         style={{ borderColor: theme.colors.border }}
       >
-        <div className="flex items-center gap-6 sm:gap-8">
-          <div className="p-2 shrink-0 flex items-center justify-center">
-            <img
-              src={logoSrc}
-              alt="Atharv Ranbhoomi"
-              className="h-24 sm:h-32 lg:h-36 w-auto object-contain select-none"
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-          </div>
-          <div>
-            <div className="text-xs font-medium tracking-wider uppercase mb-1" style={{ color: theme.colors.muted }}>
+        <div className="space-y-2 sm:space-y-4">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <span
+              className="text-[11px] sm:text-xs md:text-sm font-bold tracking-widest uppercase"
+              style={{ color: theme.colors.accent }}
+            >
               ATHARV RANBHOOMI &apos;26
+            </span>
+            <span style={{ color: theme.colors.muted }}>•</span>
+            <span
+              className="text-[11px] sm:text-xs md:text-sm font-semibold tracking-wider uppercase"
+              style={{ color: theme.colors.muted }}
+            >
+              CULTURAL FESTIVAL
+            </span>
+            {isEC && (
+              <>
+                <span style={{ color: theme.colors.muted }}>•</span>
+                <span
+                  className="text-[10px] sm:text-xs font-bold tracking-wider uppercase px-2 py-0.5 rounded-md border"
+                  style={{
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surface,
+                    color: theme.colors.accent,
+                  }}
+                >
+                  EC PORTAL
+                </span>
+              </>
+            )}
+          </div>
+
+          <h1
+            className="text-3xl sm:text-5xl md:text-7xl font-extrabold tracking-tight uppercase leading-none select-none"
+            style={{ color: theme.colors.text }}
+          >
+            EVENT CULTS
+          </h1>
+        </div>
+
+        {/* Official Atharv Ranbhoomi Logo */}
+        <div className="shrink-0 flex items-center justify-start sm:justify-end">
+          <img
+            src={logoSrc}
+            alt="Atharv Ranbhoomi Logo"
+            className="h-16 sm:h-24 md:h-36 w-auto object-contain select-none transition-transform hover:scale-102"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Fest Countdown Timer (For both EC & Core Team) */}
+      <CountdownTimer />
+
+      {/* Top Overview Metrics (Core Team Only) */}
+      {!isEC && (
+        <div className="pb-6 sm:pb-10 mb-6 sm:mb-10 border-b space-y-4 sm:space-y-6" style={{ borderColor: theme.colors.border }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider" style={{ color: theme.colors.muted }}>
+              LIVE REGISTRATION STATS
+            </span>
+            <button
+              id="live-refresh-metrics-btn"
+              onClick={() => fetchMetrics(true)}
+              disabled={loading}
+              className="px-2.5 sm:px-3.5 py-1.5 border rounded-lg text-[10px] sm:text-xs font-semibold tracking-wider uppercase inline-flex items-center gap-1.5 sm:gap-2 cursor-pointer transition-all hover:brightness-95 disabled:opacity-50 shadow-2xs shrink-0"
+              style={{
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                color: theme.colors.text,
+              }}
+              title="Fetch fresh live data from all connected Google Sheets"
+            >
+              <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${loading ? 'animate-spin' : ''}`} style={{ color: theme.colors.accent }} />
+              <span>{loading ? 'SYNCING...' : `SYNC • ${lastRefreshed}`}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-10">
+            <div>
+              <div
+                className="text-2xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-0.5"
+                style={{ color: theme.colors.text }}
+              >
+                15
+              </div>
+              <div
+                className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider"
+                style={{ color: theme.colors.muted }}
+              >
+                TOTAL TRACKS
+              </div>
             </div>
-            {/* Opening Page FoldText Primary Title: Outfit 800 Extrabold */}
-            <div className="cursor-default tracking-tight">
-              <FoldText
-                text="EVENTS : CULTS"
-                fontSize="clamp(2.25rem, 5.5vw, 3.75rem)"
-                fontWeight={800}
-                color={theme.colors.text}
-                hinge="top"
-                trigger="mount"
-                duration={0.6}
-                stagger={0.03}
-              />
+
+            <div>
+              <div
+                className="text-2xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-0.5"
+                style={{ color: theme.colors.text }}
+              >
+                {(metrics?.totalRegistrations ?? 0).toLocaleString()}
+              </div>
+              <div
+                className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider"
+                style={{ color: theme.colors.muted }}
+              >
+                REGISTRATIONS
+              </div>
+            </div>
+
+            <div>
+              <div
+                className="text-2xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-0.5"
+                style={{ color: theme.colors.text }}
+              >
+                {(metrics?.totalParticipants ?? 0).toLocaleString()}
+              </div>
+              <div
+                className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider"
+                style={{ color: theme.colors.muted }}
+              >
+                PARTICIPANTS
+              </div>
+            </div>
+
+            <div>
+              <div
+                className="text-2xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-0.5"
+                style={{ color: theme.colors.accent }}
+              >
+                {(metrics?.totalSubmissions ?? 0).toLocaleString()}
+              </div>
+              <div
+                className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider"
+                style={{ color: theme.colors.accent }}
+              >
+                SUBMISSIONS
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Live Indicator & Manual Refresh */}
-        <div className="flex items-center gap-4 text-xs font-medium">
-          <div className="flex items-center gap-2" style={{ color: theme.colors.muted }}>
-            <span
-              className="inline-block w-2 h-2 rounded-full animate-pulse"
-              style={{ backgroundColor: theme.colors.accent }}
-            />
-            <span className="uppercase tracking-wider text-xs">
-              LIVE • {lastRefreshed}
-            </span>
-          </div>
+      {/* Directory Index Header with Brochure Button */}
+      <div className="flex items-center justify-between gap-3 mb-4 sm:mb-6">
+        <div>
+          <h2
+            className="text-lg sm:text-2xl md:text-3xl font-bold tracking-tight uppercase"
+            style={{ color: theme.colors.text }}
+          >
+            {isEC ? 'CULTURAL EVENTS' : 'DIRECTORY INDEX'}
+          </h2>
+          <span
+            className="text-[10px] sm:text-xs font-medium uppercase tracking-wider block mt-0.5"
+            style={{ color: theme.colors.muted }}
+          >
+            15 TRACKS • SELECT TO VIEW
+          </span>
+        </div>
 
-          <button
-            onClick={() => fetchMetrics(true)}
-            disabled={loading}
-            title="Refresh Live Google Sheet Data"
-            className="p-2.5 border transition-all cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50"
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Official Events Brochure Button */}
+          <a
+            id="event-cults-brochure-link"
+            href={eventCultsBrochureUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all hover:brightness-95 select-none cursor-pointer shadow-2xs"
             style={{
               borderColor: theme.colors.border,
               backgroundColor: theme.colors.surface,
-              color: theme.colors.text,
+              color: theme.colors.accent,
             }}
+            title="Open Official Event Cults Brochure"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Brochure ↗</span>
+          </a>
         </div>
       </div>
 
-      {/* Numerical Metrics: Large Numbers First (Outfit 700 Bold / 500 Medium) */}
-      <div
-        className="grid grid-cols-2 md:grid-cols-4 gap-8 sm:gap-12 pb-10 mb-14 border-b"
-        style={{ borderColor: theme.colors.border }}
-      >
-        <div>
-          <div
-            className="text-3xl sm:text-5xl font-bold tracking-tight mb-1"
-            style={{ color: theme.colors.text }}
-          >
-            {metrics?.totalEvents ?? 15}
-          </div>
-          <div
-            className="text-xs font-medium uppercase tracking-wider"
-            style={{ color: theme.colors.muted }}
-          >
-            EVENTS
-          </div>
-        </div>
-
-        <div>
-          <div
-            className="text-3xl sm:text-5xl font-bold tracking-tight mb-1"
-            style={{ color: theme.colors.text }}
-          >
-            {(metrics?.totalRegistrations ?? 0).toLocaleString()}
-          </div>
-          <div
-            className="text-xs font-medium uppercase tracking-wider"
-            style={{ color: theme.colors.muted }}
-          >
-            REGISTRATIONS
-          </div>
-        </div>
-
-        <div>
-          <div
-            className="text-3xl sm:text-5xl font-bold tracking-tight mb-1"
-            style={{ color: theme.colors.text }}
-          >
-            {(metrics?.totalParticipants ?? 0).toLocaleString()}
-          </div>
-          <div
-            className="text-xs font-medium uppercase tracking-wider"
-            style={{ color: theme.colors.muted }}
-          >
-            PARTICIPANTS
-          </div>
-        </div>
-
-        <div>
-          <div
-            className="text-3xl sm:text-5xl font-bold tracking-tight mb-1"
-            style={{ color: theme.colors.accent }}
-          >
-            {(metrics?.totalSubmissions ?? 0).toLocaleString()}
-          </div>
-          <div
-            className="text-xs font-medium uppercase tracking-wider"
-            style={{ color: theme.colors.accent }}
-          >
-            SUBMISSIONS
-          </div>
-        </div>
-      </div>
-
-      {/* Directory Index Header */}
-      <div className="flex items-baseline justify-between mb-8">
-        <div>
-          <h2
-            className="text-2xl sm:text-3xl font-bold tracking-tight uppercase"
-            style={{ color: theme.colors.text }}
-          >
-            DIRECTORY INDEX
-          </h2>
-          <span
-            className="text-xs font-medium uppercase tracking-wider block mt-0.5"
-            style={{ color: theme.colors.muted }}
-          >
-            15 TRACKS
-          </span>
-        </div>
-      </div>
-
-      {/* Dual Column Menu (Spacious, No Line Separators, Outfit Hierarchy) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-1 sm:gap-y-2">
+      {/* Dual Column Menu */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Column 1: Tracks 01 to 08 */}
-        <div className="space-y-1 sm:space-y-1.5">
+        <div className="space-y-3">
           {EVENTS_REGISTRY.slice(0, 8).map((event, idx) =>
             renderEventItem(event, idx)
           )}
         </div>
 
         {/* Column 2: Tracks 09 to 15 */}
-        <div className="space-y-1 sm:space-y-1.5">
+        <div className="space-y-3">
           {EVENTS_REGISTRY.slice(8, 15).map((event, idx) =>
             renderEventItem(event, idx + 8)
           )}
