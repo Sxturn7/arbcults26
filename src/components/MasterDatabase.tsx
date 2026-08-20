@@ -2,18 +2,23 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Download, RefreshCw, Film, ArrowRight } from 'lucide-react';
 import { NormalizedRegistration } from '../types.ts';
 import { EVENTS_REGISTRY } from '../config/events.ts';
+import { AccessRole } from '../config/access.ts';
 import { useTheme } from '../context/ThemeContext.tsx';
+import { getMasterDatabase } from '../services/dataService.ts';
 
 interface MasterDatabaseProps {
   onSelectRecord: (record: NormalizedRegistration) => void;
   onSelectEvent: (eventId: string) => void;
+  accessRole?: AccessRole | null;
 }
 
 export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
   onSelectRecord,
   onSelectEvent,
+  accessRole,
 }) => {
   const { theme } = useTheme();
+  const isEC = accessRole === 'ec';
   const [records, setRecords] = useState<NormalizedRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,11 +32,9 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
       if (force) setRefreshing(true);
       else setLoading(true);
 
-      const res = await fetch(`/api/database${force ? '?refresh=true' : ''}`);
-      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-      const json = await res.json();
-      if (json.success) {
-        setRecords(json.data.records);
+      const data = await getMasterDatabase(force);
+      if (data) {
+        setRecords(data);
       }
     } catch (err) {
       console.error('Failed to load master database:', err);
@@ -53,8 +56,8 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
       // Type filter
       if (selectedType !== 'ALL' && r.type !== selectedType) return false;
 
-      // Submissions only
-      if (onlySubmissions && (!r.submissions || r.submissions.length === 0)) return false;
+      // Submissions only (only allowed for Core Team)
+      if (!isEC && onlySubmissions && (!r.submissions || r.submissions.length === 0)) return false;
 
       // Search query
       if (!query.trim()) return true;
@@ -70,23 +73,31 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
 
       return inName || inCollege || inEvent || inEmail || inContact || inParticipants || inId;
     });
-  }, [records, selectedEventId, selectedType, onlySubmissions, query]);
+  }, [records, selectedEventId, selectedType, onlySubmissions, query, isEC]);
 
   const handleExportCSV = () => {
     if (filteredRecords.length === 0) return;
-    const headers = ['Entry ID', 'Event ID', 'Event Name', 'Participant / Team', 'Type', 'College', 'Emails', 'Contacts', 'Submissions', 'Timestamp'];
-    const rows = filteredRecords.map((r) => [
-      `"${r.id}"`,
-      `"${r.eventId}"`,
-      `"${r.eventName}"`,
-      `"${r.displayName}"`,
-      `"${r.type}"`,
-      `"${r.college || ''}"`,
-      `"${r.emails.join('; ')}"`,
-      `"${r.contacts.join('; ')}"`,
-      `"${r.submissions.map((s) => s.url).join('; ')}"`,
-      `"${r.timestamp || ''}"`,
-    ]);
+    const headers = isEC
+      ? ['Entry ID', 'Event ID', 'Event Name', 'Participant / Team', 'Type', 'College', 'Emails', 'Contacts', 'Timestamp']
+      : ['Entry ID', 'Event ID', 'Event Name', 'Participant / Team', 'Type', 'College', 'Emails', 'Contacts', 'Submissions', 'Timestamp'];
+
+    const rows = filteredRecords.map((r) => {
+      const baseRow = [
+        `"${r.id}"`,
+        `"${r.eventId}"`,
+        `"${r.eventName}"`,
+        `"${r.displayName}"`,
+        `"${r.type}"`,
+        `"${r.college || ''}"`,
+        `"${r.emails.join('; ')}"`,
+        `"${r.contacts.join('; ')}"`,
+      ];
+      if (!isEC) {
+        baseRow.push(`"${r.submissions.map((s) => s.url).join('; ')}"`);
+      }
+      baseRow.push(`"${r.timestamp || ''}"`);
+      return baseRow;
+    });
 
     const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -99,15 +110,15 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-6 sm:px-12 py-8 sm:py-12 font-outfit">
+    <div className="max-w-7xl mx-auto px-4 sm:px-8 md:px-12 py-6 sm:py-8 md:py-12 font-outfit">
       {/* Header */}
       <div
-        className="border-b pb-6 mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6"
+        className="border-b pb-4 sm:pb-6 mb-6 sm:mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6"
         style={{ borderColor: theme.colors.border }}
       >
         <div>
           <div
-            className="text-xs font-medium tracking-wider uppercase mb-1"
+            className="text-[10px] sm:text-xs font-medium tracking-wider uppercase mb-1"
             style={{ color: theme.colors.muted }}
           >
             ATHARV RANBHOOMI &apos;26 • MASTER REGISTRY
@@ -120,11 +131,11 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
           </h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={() => fetchDatabase(true)}
             disabled={refreshing || loading}
-            className="px-4 py-2 border transition-all text-xs font-medium tracking-wider uppercase inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 hover:brightness-95"
+            className="px-3 sm:px-4 py-2 border transition-all text-xs font-medium tracking-wider uppercase inline-flex items-center gap-1.5 sm:gap-2 cursor-pointer disabled:opacity-50 hover:brightness-95 shadow-2xs"
             style={{
               backgroundColor: theme.colors.surface,
               borderColor: theme.colors.border,
@@ -132,12 +143,12 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
             }}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            <span>{refreshing ? 'SYNCING...' : 'SYNC ALL SHEETS'}</span>
+            <span>{refreshing ? 'SYNCING...' : 'SYNC ALL'}</span>
           </button>
 
           <button
             onClick={handleExportCSV}
-            className="px-4 py-2 text-white transition-all text-xs font-medium tracking-wider uppercase inline-flex items-center gap-2 cursor-pointer hover:brightness-110"
+            className="px-3 sm:px-4 py-2 text-white transition-all text-xs font-medium tracking-wider uppercase inline-flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:brightness-110 shadow-2xs"
             style={{ backgroundColor: theme.colors.accent }}
           >
             <Download className="w-3.5 h-3.5" />
@@ -222,23 +233,27 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
               </select>
             </div>
 
-            {/* Only Submissions toggle */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={onlySubmissions}
-                onChange={(e) => setOnlySubmissions(e.target.checked)}
-              />
-              <span className="uppercase text-xs font-medium" style={{ color: theme.colors.text }}>
-                SUBMISSIONS ONLY
-              </span>
-            </label>
+            {/* Only Submissions toggle (Core Team only) */}
+            {!isEC && (
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={onlySubmissions}
+                  onChange={(e) => setOnlySubmissions(e.target.checked)}
+                />
+                <span className="uppercase text-xs font-medium" style={{ color: theme.colors.text }}>
+                  SUBMISSIONS ONLY
+                </span>
+              </label>
+            )}
           </div>
 
-          <div className="text-xs font-normal" style={{ color: theme.colors.muted }}>
-            SHOWING <span className="font-semibold" style={{ color: theme.colors.text }}>{filteredRecords.length}</span> OF{' '}
-            <span className="font-semibold" style={{ color: theme.colors.text }}>{records.length}</span>
-          </div>
+          {!isEC && (
+            <div className="text-xs font-normal" style={{ color: theme.colors.muted }}>
+              SHOWING <span className="font-semibold" style={{ color: theme.colors.text }}>{filteredRecords.length}</span> OF{' '}
+              <span className="font-semibold" style={{ color: theme.colors.text }}>{records.length}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -268,7 +283,7 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
                 <th className="py-3 px-4 font-medium">PARTICIPANT / TEAM</th>
                 <th className="py-3 px-4 font-medium">INSTITUTION</th>
                 <th className="py-3 px-4 w-36 font-medium">CONTACT</th>
-                <th className="py-3 px-4 w-28 text-center font-medium">SUBMISSION</th>
+                {!isEC && <th className="py-3 px-4 w-28 text-center font-medium">SUBMISSION</th>}
                 <th className="py-3 px-4 w-16 text-right font-medium"></th>
               </tr>
             </thead>
@@ -289,14 +304,14 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
                   <td className="py-3.5 px-4 font-light" style={{ color: theme.colors.muted }}>
                     {(idx + 1).toString().padStart(2, '0')}
                   </td>
-                  <td className="py-3.5 px-4 font-semibold">
+                  <td className="py-3.5 px-4">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectEvent(r.eventId);
                       }}
-                      className="hover:underline uppercase text-left cursor-pointer transition-colors"
-                      style={{ color: theme.colors.text }}
+                      className="font-medium uppercase hover:underline text-left cursor-pointer"
+                      style={{ color: theme.colors.accent }}
                     >
                       {r.eventName}
                     </button>
@@ -304,33 +319,44 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
                   <td className="py-3.5 px-4 font-normal" style={{ color: theme.colors.muted }}>
                     {r.id}
                   </td>
-                  <td
-                    className="py-3.5 px-4 font-semibold text-sm uppercase group-hover:pl-1 transition-all"
-                    style={{ color: theme.colors.text }}
-                  >
-                    {r.displayName}
-                  </td>
-                  <td className="py-3.5 px-4 truncate max-w-xs font-normal" style={{ color: theme.colors.muted }}>
-                    {r.college || 'N/A'}
-                  </td>
-                  <td className="py-3.5 px-4 font-normal" style={{ color: theme.colors.muted }}>
-                    {(r.contacts && r.contacts[0]) || (r.emails && r.emails[0] && typeof r.emails[0] === 'string' ? r.emails[0].split('@')[0] : 'N/A')}
-                  </td>
-                  <td className="py-3.5 px-4 text-center">
-                    {r.submissions && r.submissions.length > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium" style={{ color: theme.colors.accent }}>
-                        <Film className="w-3 h-3" />
-                        <span>LINK</span>
-                      </span>
-                    ) : (
-                      <span style={{ color: theme.colors.border }}>/</span>
+                  <td className="py-3.5 px-4">
+                    <div className="font-semibold uppercase" style={{ color: theme.colors.text }}>
+                      {r.displayName}
+                    </div>
+                    {r.teamName && (
+                      <div className="text-[11px] uppercase font-normal" style={{ color: theme.colors.muted }}>
+                        {r.teamName}
+                      </div>
                     )}
                   </td>
+                  <td className="py-3.5 px-4 font-normal" style={{ color: theme.colors.muted }}>
+                    {r.college || '—'}
+                  </td>
+                  <td className="py-3.5 px-4 font-normal" style={{ color: theme.colors.muted }}>
+                    <div>{r.contacts[0] || '—'}</div>
+                    <div className="text-[11px] truncate max-w-[140px]">{r.emails[0] || ''}</div>
+                  </td>
+                  {!isEC && (
+                    <td className="py-3.5 px-4 text-center">
+                      {r.submissions && r.submissions.length > 0 ? (
+                        <span
+                          className="px-2 py-0.5 text-[11px] font-semibold uppercase border rounded inline-flex items-center gap-1"
+                          style={{
+                            borderColor: theme.colors.border,
+                            backgroundColor: theme.colors.surface,
+                            color: theme.colors.accent,
+                          }}
+                        >
+                          <Film className="w-3 h-3" />
+                          <span>{r.submissions.length}</span>
+                        </span>
+                      ) : (
+                        <span style={{ color: theme.colors.muted }}>—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="py-3.5 px-4 text-right">
-                    <ArrowRight
-                      className="w-4 h-4 ml-auto transition-transform group-hover:translate-x-0.5 opacity-40 group-hover:opacity-100"
-                      style={{ color: theme.colors.accent }}
-                    />
+                    <ArrowRight className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all inline" />
                   </td>
                 </tr>
               ))}
@@ -338,15 +364,9 @@ export const MasterDatabase: React.FC<MasterDatabaseProps> = ({
           </table>
         </div>
       ) : (
-        <div
-          className="py-16 text-center border"
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.border,
-          }}
-        >
-          <p className="text-xs uppercase font-normal" style={{ color: theme.colors.muted }}>
-            NO RECORDS MATCH YOUR SEARCH CRITERIA.
+        <div className="py-20 text-center border" style={{ borderColor: theme.colors.border }}>
+          <p className="text-xs uppercase tracking-wider font-normal" style={{ color: theme.colors.muted }}>
+            NO RECORDS MATCH YOUR FILTERS
           </p>
         </div>
       )}
