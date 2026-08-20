@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTheme } from '../context/ThemeContext.tsx';
+import { eventCultsBrochureUrl, arbEventBrochureUrl } from '../config/events.ts';
 
 interface FooterProps {
   onRefreshData?: () => void;
@@ -26,6 +27,16 @@ export const Footer: React.FC<FooterProps> = ({ onRefreshData }) => {
         </span>
         <div className="flex flex-wrap items-center gap-6 text-xs font-medium tracking-wider uppercase">
           <a
+            href={eventCultsBrochureUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="cursor-pointer transition-colors hover:underline font-semibold"
+            style={{ color: theme.colors.accent }}
+            title="Cultural Events Brochure Only"
+          >
+            EVENT CULTS BROCHURE ↗
+          </a>
+          <a
             href="https://unstop.com"
             target="_blank"
             rel="noopener noreferrer"
@@ -33,15 +44,6 @@ export const Footer: React.FC<FooterProps> = ({ onRefreshData }) => {
             style={{ color: theme.colors.darkBarText }}
           >
             UNSTOPP ↗
-          </a>
-          <a
-            href="https://docs.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="cursor-pointer transition-colors hover:underline"
-            style={{ color: theme.colors.darkBarText }}
-          >
-            GOOGLE SHEETS ↗
           </a>
           <span style={{ color: theme.colors.muted }} className="hidden sm:inline">•</span>
           <span className="text-xs font-normal tracking-wider uppercase" style={{ color: theme.colors.muted }}>
