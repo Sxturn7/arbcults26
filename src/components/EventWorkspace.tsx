@@ -5,18 +5,26 @@ import {
   Search,
   Check,
   Copy,
+  RefreshCw,
+  BookOpen,
   Phone,
+  ExternalLink,
+  Users,
+  Award,
 } from 'lucide-react';
 import { EventConfig, EventDataResponse, NormalizedRegistration, ActiveTab, POC } from '../types.ts';
-import { getSheetUrl, EVENTS_REGISTRY } from '../config/events.ts';
+import { getSheetUrl, getRuleBookUrl, EVENTS_REGISTRY, eventCultsBrochureUrl } from '../config/events.ts';
+import { getEventData } from '../services/dataService.ts';
 import { useTheme } from '../context/ThemeContext.tsx';
+import { AccessRole } from '../config/access.ts';
 
 interface EventWorkspaceProps {
   event: EventConfig;
   onBack: () => void;
   onSelectRecord: (record: NormalizedRegistration) => void;
   onOpenPOCs: (event: EventConfig, customPocs?: POC[]) => void;
-  onSelectEvent?: (eventId: string) => void;
+  onSelectEvent: (eventId: string) => void;
+  accessRole?: AccessRole | null;
 }
 
 export const EventWorkspace: React.FC<EventWorkspaceProps> = ({
@@ -25,33 +33,28 @@ export const EventWorkspace: React.FC<EventWorkspaceProps> = ({
   onSelectRecord,
   onOpenPOCs,
   onSelectEvent,
+  accessRole,
 }) => {
   const { theme } = useTheme();
-  const [activeTab, setActiveTab] = useState<ActiveTab>('registrations');
   const [data, setData] = useState<EventDataResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('registrations');
   const [searchQuery, setSearchQuery] = useState('');
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
 
-  const loadData = async (force = false) => {
-    try {
-      if (force) setRefreshing(true);
-      else setLoading(true);
+  const isEC = accessRole === 'ec';
 
-      const res = await fetch(`/api/events/${event.id}${force ? '?refresh=true' : ''}`);
-      if (!res.ok) {
-        throw new Error(`HTTP Error ${res.status}`);
-      }
-      const json = await res.json();
-      if (json.success) {
-        setData(json.data);
-        if (force) {
-          setLastRefreshed('UPDATED JUST NOW');
-          setTimeout(() => setLastRefreshed(null), 3000);
-        }
-      }
+  const loadData = async (forceRefresh = false) => {
+    if (isEC) return; // EC does not fetch registration data
+    if (forceRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const res = await getEventData(event.id, forceRefresh);
+      setData(res);
+      setLastRefreshed(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     } catch (err) {
       console.error('Failed to load event data:', err);
     } finally {
@@ -61,8 +64,10 @@ export const EventWorkspace: React.FC<EventWorkspaceProps> = ({
   };
 
   useEffect(() => {
-    loadData(false);
-  }, [event.id]);
+    if (!isEC) {
+      loadData();
+    }
+  }, [event.id, isEC]);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -70,392 +75,539 @@ export const EventWorkspace: React.FC<EventWorkspaceProps> = ({
     setTimeout(() => setCopiedPhone(null), 2000);
   };
 
-  const sheetUrl = getSheetUrl(event.sheetId);
-  const activePocs: POC[] = (data?.pocs && data.pocs.length > 0) ? data.pocs : event.pocs;
-  const rawRecords = data?.records || [];
-  const submissionRecords = rawRecords.filter((r) => r.submissions && r.submissions.length > 0);
+  // Previous & Next event navigation
+  const currentIndex = EVENTS_REGISTRY.findIndex((e) => e.id === event.id);
+  const prevEvent = currentIndex > 0 ? EVENTS_REGISTRY[currentIndex - 1] : null;
+  const nextEvent = currentIndex < EVENTS_REGISTRY.length - 1 ? EVENTS_REGISTRY[currentIndex + 1] : null;
 
-  // Filtered records according to search
+  const sheetUrl = getSheetUrl(event.sheetId);
+  const ruleBookUrl = event.ruleBookUrl || getRuleBookUrl(event.id) || getRuleBookUrl(event.name);
+  const activePocs: POC[] = (data?.pocs && data.pocs.length > 0) ? data.pocs : event.pocs;
+  const rawRecords = isEC ? [] : (data?.records || []);
+  const submissionRecords = isEC ? [] : rawRecords.filter((r) => r.submissions && r.submissions.length > 0);
+
+  // Filtered records according to search (Core team only)
   const filteredRecords = useMemo(() => {
+    if (isEC) return [];
     const list = activeTab === 'submissions' ? submissionRecords : rawRecords;
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase();
     return list.filter((r) => {
       const inName = r.displayName.toLowerCase().includes(q);
-      const inCollege = (r.college || '').toLowerCase().includes(q);
+      const inCollege = r.college?.toLowerCase().includes(q);
       const inId = r.id.toLowerCase().includes(q);
       const inEmail = r.emails.some((e) => e.toLowerCase().includes(q));
       const inPhone = r.contacts.some((c) => c.toLowerCase().includes(q));
       return inName || inCollege || inId || inEmail || inPhone;
     });
-  }, [rawRecords, submissionRecords, activeTab, searchQuery]);
+  }, [rawRecords, submissionRecords, activeTab, searchQuery, isEC]);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 sm:px-12 py-8 sm:py-12 font-outfit">
-      {/* Editorial Top Navigation */}
-      <div className="flex items-center justify-between pb-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-8 md:px-12 py-6 sm:py-8 md:py-12 font-outfit">
+      {/* Top Navigation Row: Back Button & Previous/Next track switcher */}
+      <div className="flex items-center justify-between pb-6 sm:pb-8 mb-6 sm:mb-8 border-b gap-2" style={{ borderColor: theme.colors.border }}>
         <button
-          id="back-to-events-btn"
+          id="back-to-directory-btn"
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-xs font-medium tracking-wider uppercase group transition-colors cursor-pointer"
-          style={{ color: theme.colors.muted }}
+          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 border rounded-lg text-xs font-semibold uppercase tracking-wider transition-all hover:brightness-95 active:scale-95 cursor-pointer shadow-2xs shrink-0"
+          style={{
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surface,
+            color: theme.colors.text,
+          }}
         >
-          <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
-          <span className="group-hover:underline">EVENTS INDEX</span>
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Events Directory</span>
+          <span className="sm:hidden">Events</span>
         </button>
 
-        {/* Quick Track Switcher dropdown */}
-        {onSelectEvent && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: theme.colors.muted }}>
-              TRACK:
-            </span>
-            <select
-              value={event.id}
-              onChange={(e) => onSelectEvent(e.target.value)}
-              className="border-b py-1 px-2 text-xs font-medium uppercase outline-hidden cursor-pointer transition-colors"
+        <div className="flex items-center gap-1.5 sm:gap-4 text-xs font-semibold uppercase tracking-wider shrink-0">
+          {prevEvent && (
+            <button
+              onClick={() => onSelectEvent(prevEvent.id)}
+              className="px-2 sm:px-2.5 py-1 rounded border transition-colors hover:brightness-95 cursor-pointer max-w-[120px] sm:max-w-none truncate"
               style={{
-                backgroundColor: 'transparent',
                 borderColor: theme.colors.border,
-                color: theme.colors.text,
+                backgroundColor: theme.colors.surface,
+                color: theme.colors.muted,
               }}
+              title={prevEvent.name}
             >
-              {EVENTS_REGISTRY.map((e) => (
-                <option key={e.id} value={e.id} style={{ backgroundColor: theme.colors.bg, color: theme.colors.text }}>
-                  {e.number} {e.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              ← <span className="hidden sm:inline">{prevEvent.name}</span><span className="sm:hidden">{prevEvent.number}</span>
+            </button>
+          )}
+          {nextEvent && (
+            <button
+              onClick={() => onSelectEvent(nextEvent.id)}
+              className="px-2 sm:px-2.5 py-1 rounded border transition-colors hover:brightness-95 cursor-pointer max-w-[120px] sm:max-w-none truncate"
+              style={{
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+                color: theme.colors.muted,
+              }}
+              title={nextEvent.name}
+            >
+              <span className="hidden sm:inline">{nextEvent.name}</span><span className="sm:hidden">{nextEvent.number}</span> →
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Editorial Event Header */}
-      <header className="mb-10">
-        {/* Track Number */}
-        <div
-          className="text-4xl sm:text-6xl font-light tracking-tight mb-2"
-          style={{ color: theme.colors.accent }}
-        >
-          {event.number}
+      {/* Main Track Header */}
+      <header className="pb-6 sm:pb-8 mb-6 sm:mb-8 border-b space-y-3 sm:space-y-4" style={{ borderColor: theme.colors.border }}>
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+          <span
+            className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight"
+            style={{ color: theme.colors.accent }}
+          >
+            {event.number}
+          </span>
+          <span style={{ color: theme.colors.border }}>•</span>
+          {event.categoryHint && (
+            <span
+              className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md border"
+              style={{
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+                color: theme.colors.muted,
+              }}
+            >
+              {event.categoryHint.toUpperCase()}
+            </span>
+          )}
         </div>
 
-        {/* Event Name */}
         <h1
-          className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight uppercase leading-none mb-6 break-words"
+          className="text-3xl sm:text-5xl md:text-6xl font-extrabold uppercase tracking-tight leading-tight"
           style={{ color: theme.colors.text }}
         >
           {event.name}
         </h1>
 
-        {/* Editorial Metrics Line */}
-        <div className="flex flex-wrap items-center gap-6 sm:gap-10 text-xs sm:text-sm font-medium uppercase tracking-wider mb-6">
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-semibold" style={{ color: theme.colors.text }}>
-              {rawRecords.length}
-            </span>
-            <span style={{ color: theme.colors.muted }}>REGISTRATIONS</span>
-          </div>
-
-          <span style={{ color: theme.colors.border }}>•</span>
-
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-semibold" style={{ color: theme.colors.text }}>
-              {submissionRecords.length}
-            </span>
-            <span style={{ color: theme.colors.muted }}>SUBMISSIONS</span>
-          </div>
-
-          <span style={{ color: theme.colors.border }}>•</span>
-
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-semibold" style={{ color: theme.colors.text }}>
-              {activePocs.length}
-            </span>
-            <span style={{ color: theme.colors.muted }}>POCs</span>
-          </div>
-        </div>
-
-        {/* Subtle Editorial Utility Line */}
-        <div
-          className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-4 border-t text-xs font-medium tracking-wider uppercase"
-          style={{ borderColor: theme.colors.border }}
-        >
-          <a
-            href={event.unstopUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:underline transition-colors inline-flex items-center gap-1"
-            style={{ color: theme.colors.text }}
-          >
-            <span>UNSTOPP ↗</span>
-          </a>
-
-          {event.registrationFormUrl && (
+        {/* Action Links Bar */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4 pt-1 sm:pt-2">
+          {/* Rule Book Button */}
+          {ruleBookUrl && (
             <a
-              href={event.registrationFormUrl}
+              id="event-rulebook-btn"
+              href={ruleBookUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:underline transition-colors inline-flex items-center gap-1"
-              style={{ color: theme.colors.text }}
+              className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold uppercase tracking-wider text-white transition-transform hover:brightness-110 shadow-2xs"
+              style={{ backgroundColor: theme.colors.accent }}
             >
-              <span>FORM ↗</span>
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Rule Book ↗</span>
             </a>
           )}
 
+          {/* Unstop Listing Link */}
+          {event.unstopUrl && (
+            <a
+              href={event.unstopUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 border rounded-lg text-[11px] sm:text-xs font-semibold uppercase tracking-wider transition-colors hover:brightness-95 shadow-2xs"
+              style={{
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+                color: theme.colors.text,
+              }}
+            >
+              <span>Unstop ↗</span>
+            </a>
+          )}
+
+          {/* Brochure Link */}
           <a
-            href={sheetUrl}
+            href={eventCultsBrochureUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="hover:underline transition-colors inline-flex items-center gap-1"
-            style={{ color: theme.colors.text }}
+            className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 border rounded-lg text-[11px] sm:text-xs font-semibold uppercase tracking-wider transition-colors hover:brightness-95 shadow-2xs"
+            style={{
+              borderColor: theme.colors.border,
+              backgroundColor: theme.colors.surface,
+              color: theme.colors.muted,
+            }}
           >
-            <span>SHEET ↗</span>
+            <span>Brochure ↗</span>
           </a>
 
-          <button
-            onClick={() => onOpenPOCs(event, activePocs)}
-            className="hover:underline transition-colors cursor-pointer inline-flex items-center gap-1"
-            style={{ color: theme.colors.accent }}
-          >
-            <span>POCs ({activePocs.length}) ↗</span>
-          </button>
+          {/* Core Team Only Actions */}
+          {!isEC && (
+            <>
+              {sheetUrl && (
+                <a
+                  href={sheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline transition-colors text-xs font-semibold uppercase tracking-wider inline-flex items-center gap-1"
+                  style={{ color: theme.colors.accent }}
+                >
+                  <span>Sheet ↗</span>
+                </a>
+              )}
 
-          <span className="hidden sm:inline" style={{ color: theme.colors.border }}>|</span>
+              <button
+                onClick={() => onOpenPOCs(event, activePocs)}
+                className="hover:underline transition-colors cursor-pointer text-xs font-semibold uppercase tracking-wider inline-flex items-center gap-1"
+                style={{ color: theme.colors.accent }}
+              >
+                <span>POCs ({activePocs.length}) ↗</span>
+              </button>
 
-          <button
-            onClick={() => loadData(true)}
-            disabled={refreshing || loading}
-            className="cursor-pointer transition-colors hover:underline inline-flex items-center gap-1 disabled:opacity-50"
-            style={{ color: theme.colors.muted }}
-          >
-            {refreshing ? (
-              <span>REFRESHING...</span>
-            ) : lastRefreshed ? (
-              <span style={{ color: theme.colors.accent }}>{lastRefreshed}</span>
-            ) : (
-              <span>REFRESH ↻</span>
-            )}
-          </button>
+              <button
+                onClick={() => loadData(true)}
+                disabled={refreshing || loading}
+                className="cursor-pointer transition-colors hover:underline inline-flex items-center gap-1.5 disabled:opacity-50 text-xs font-semibold uppercase tracking-wider"
+                style={{ color: theme.colors.muted }}
+                title="Force refresh live data from Google Sheet"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} style={{ color: theme.colors.accent }} />
+                <span>{refreshing ? 'SYNCING...' : lastRefreshed ? lastRefreshed : 'SYNC'}</span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      {/* Tabs & Search Area */}
-      <div
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4 mb-8"
-        style={{ borderColor: theme.colors.border }}
-      >
-        {/* Tabs */}
-        <div className="flex items-center gap-6 sm:gap-8 text-xs sm:text-sm font-medium uppercase tracking-wider">
-          <button
-            onClick={() => setActiveTab('registrations')}
-            className="pb-2 relative cursor-pointer transition-colors"
+      {/* Extended Core View: Event Details, Rule Book & Points of Contact (POCs) ONLY */}
+      {isEC ? (
+        <div className="space-y-8">
+          {/* Rule Book Highlight Card */}
+          <div
+            className="p-6 sm:p-8 border rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-6 shadow-xs"
             style={{
-              color: activeTab === 'registrations' ? theme.colors.accent : theme.colors.muted,
-              fontWeight: activeTab === 'registrations' ? 600 : 500,
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.border,
             }}
           >
-            <span>REGISTRATIONS {rawRecords.length}</span>
-            {activeTab === 'registrations' && (
-              <div
-                className="absolute bottom-[-17px] left-0 right-0 h-[2px]"
-                style={{ backgroundColor: theme.colors.accent }}
-              />
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('submissions')}
-            className="pb-2 relative cursor-pointer transition-colors"
-            style={{
-              color: activeTab === 'submissions' ? theme.colors.accent : theme.colors.muted,
-              fontWeight: activeTab === 'submissions' ? 600 : 500,
-            }}
-          >
-            <span>SUBMISSIONS {submissionRecords.length}</span>
-            {activeTab === 'submissions' && (
-              <div
-                className="absolute bottom-[-17px] left-0 right-0 h-[2px]"
-                style={{ backgroundColor: theme.colors.accent }}
-              />
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('pocs')}
-            className="pb-2 relative cursor-pointer transition-colors"
-            style={{
-              color: activeTab === 'pocs' ? theme.colors.accent : theme.colors.muted,
-              fontWeight: activeTab === 'pocs' ? 600 : 500,
-            }}
-          >
-            <span>POCs {activePocs.length}</span>
-            {activeTab === 'pocs' && (
-              <div
-                className="absolute bottom-[-17px] left-0 right-0 h-[2px]"
-                style={{ backgroundColor: theme.colors.accent }}
-              />
-            )}
-          </button>
-        </div>
-
-        {/* Minimal Search Bar (when on registrations/submissions) */}
-        {activeTab !== 'pocs' && (
-          <div className="relative w-full sm:w-72">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: theme.colors.muted }} />
-            <input
-              type="text"
-              placeholder="SEARCH NAME, COLLEGE..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full border-b py-1.5 pl-8 pr-3 text-xs font-normal uppercase outline-hidden tracking-wider"
-              style={{
-                backgroundColor: 'transparent',
-                borderColor: theme.colors.border,
-                color: theme.colors.text,
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Main Content Area */}
-      {loading ? (
-        <div className="py-24 text-center">
-          <div className="text-xs uppercase tracking-widest font-medium" style={{ color: theme.colors.muted }}>
-            SYNCING LIVE ARCHIVE...
-          </div>
-        </div>
-      ) : activeTab === 'pocs' ? (
-        /* POCs View - Editorial Rows */
-        <div className="space-y-6 max-w-2xl">
-          <div className="text-xs font-medium uppercase tracking-wider" style={{ color: theme.colors.muted }}>
-            POINTS OF CONTACT FOR {event.name}
-          </div>
-          <div className="divide-y" style={{ borderColor: theme.colors.border }}>
-            {activePocs.map((poc, idx) => (
-              <div
-                key={idx}
-                className="py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
-                style={{ borderTopColor: theme.colors.border }}
-              >
-                <div>
-                  <div className="text-xs font-light tracking-tight mb-1" style={{ color: theme.colors.accent }}>
-                    0{idx + 1}
-                  </div>
-                  <h3 className="text-xl sm:text-2xl font-semibold uppercase tracking-tight" style={{ color: theme.colors.text }}>
-                    {poc.name}
-                  </h3>
-                  <div className="text-sm font-normal mt-1" style={{ color: theme.colors.muted }}>
-                    {poc.phone}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 text-xs font-medium uppercase tracking-wider">
-                  <a
-                    href={`tel:${poc.phone.replace(/\s+/g, '')}`}
-                    className="hover:underline transition-colors"
-                    style={{ color: theme.colors.accent }}
-                  >
-                    CALL ↗
-                  </a>
-                  <span style={{ color: theme.colors.border }}>•</span>
-                  <button
-                    onClick={() => handleCopy(poc.phone)}
-                    className="cursor-pointer hover:underline transition-colors"
-                    style={{ color: theme.colors.text }}
-                  >
-                    {copiedPhone === poc.phone ? (
-                      <span className="text-emerald-600 inline-flex items-center gap-1">
-                        <Check className="w-3 h-3" /> COPIED
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1">
-                        <Copy className="w-3 h-3" /> COPY
-                      </span>
-                    )}
-                  </button>
-                </div>
+            <div className="space-y-2 max-w-xl">
+              <div className="flex items-center gap-2">
+                <Award className="w-4 h-4" style={{ color: theme.colors.accent }} />
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: theme.colors.accent }}>
+                  OFFICIAL GUIDELINES & RULE BOOK
+                </span>
               </div>
-            ))}
-          </div>
-        </div>
-      ) : filteredRecords.length > 0 ? (
-        /* Registrations / Submissions List: Large Editorial Rows */
-        <div className="divide-y" style={{ borderColor: theme.colors.border }}>
-          {filteredRecords.map((record, index) => {
-            const entryNum = (index + 1).toString().padStart(2, '0');
-            const hasSubmission = record.submissions && record.submissions.length > 0;
-            const primarySubmission = hasSubmission ? record.submissions[0] : null;
+              <h2 className="text-xl sm:text-2xl font-bold uppercase tracking-tight" style={{ color: theme.colors.text }}>
+                {event.name} Guidelines & Rounds
+              </h2>
+              <p className="text-xs sm:text-sm leading-relaxed" style={{ color: theme.colors.muted }}>
+                Detailed round rules, judging criteria, time limits, music submissions, and eligibility requirements for {event.name}.
+              </p>
+              <div className="flex flex-wrap items-center gap-3 pt-1 text-xs font-medium" style={{ color: theme.colors.muted }}>
+                {event.categoryHint && <span>• Track: {event.categoryHint}</span>}
+                <span>• Format: {event.displayMode.replace('_', ' ').toUpperCase()}</span>
+              </div>
+            </div>
 
-            return (
-              <div
-                key={record.id || index}
-                onClick={() => onSelectRecord(record)}
-                className="py-6 sm:py-7 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group transition-all"
-                style={{ borderTopColor: theme.colors.border }}
+            {ruleBookUrl && (
+              <a
+                href={ruleBookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3.5 rounded-xl text-xs font-bold uppercase tracking-wider text-white text-center transition-all hover:brightness-110 shrink-0 inline-flex items-center justify-center gap-2 shadow-md"
+                style={{ backgroundColor: theme.colors.accent }}
               >
-                {/* Left: Number, Name, College */}
-                <div className="flex items-start gap-4 sm:gap-8 flex-1 min-w-0">
-                  {/* Entry Number: changes to accent on hover */}
-                  <span
-                    className="text-lg sm:text-2xl font-light w-8 sm:w-10 shrink-0 group-hover:text-accent transition-colors"
-                    style={{ color: theme.colors.muted }}
-                  >
-                    {entryNum}
-                  </span>
+                <BookOpen className="w-4 h-4" />
+                <span>OPEN RULE BOOK ↗</span>
+              </a>
+            )}
+          </div>
 
+          {/* Points of Contact (POCs) Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: theme.colors.border }}>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4" style={{ color: theme.colors.accent }} />
+                <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: theme.colors.text }}>
+                  EVENT POINTS OF CONTACT (POCS)
+                </h3>
+              </div>
+              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: theme.colors.muted }}>
+                {activePocs.length} ASSIGNED
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {activePocs.map((poc, idx) => (
+                <div
+                  key={idx}
+                  className="p-5 border rounded-2xl flex items-center justify-between gap-4 transition-all hover:brightness-98 shadow-xs"
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                  }}
+                >
                   <div className="min-w-0 flex-1">
-                    {/* Participant / Team Name */}
-                    <h2
-                      className="text-lg sm:text-2xl font-semibold tracking-tight uppercase leading-snug group-hover:translate-x-1 transition-transform"
-                      style={{ color: theme.colors.text }}
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border mb-1.5 inline-block"
+                      style={{
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.bg,
+                        color: theme.colors.accent,
+                      }}
                     >
-                      {record.displayName}
-                    </h2>
+                      POC 0{idx + 1}
+                    </span>
+                    <h4 className="text-base sm:text-lg font-bold uppercase tracking-tight truncate" style={{ color: theme.colors.text }}>
+                      {poc.name}
+                    </h4>
+                    <p className="text-xs font-semibold mt-0.5" style={{ color: theme.colors.muted }}>
+                      {poc.phone}
+                    </p>
+                  </div>
 
-                    {/* College / Institution */}
-                    {record.college && (
-                      <p
-                        className="text-xs sm:text-sm font-normal mt-1 leading-relaxed max-w-2xl truncate sm:whitespace-normal"
-                        style={{ color: theme.colors.muted }}
-                      >
-                        {record.college}
-                      </p>
-                    )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <a
+                      href={`tel:${poc.phone.replace(/\s+/g, '')}`}
+                      className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider text-white transition-all hover:brightness-110 flex items-center gap-1.5 shadow-2xs"
+                      style={{ backgroundColor: theme.colors.accent }}
+                      title={`Call ${poc.name}`}
+                    >
+                      <Phone className="w-3 h-3" />
+                      <span>Call</span>
+                    </a>
+                    <button
+                      onClick={() => handleCopy(poc.phone)}
+                      className="p-2 border rounded-lg text-xs font-semibold uppercase transition-colors hover:brightness-95 cursor-pointer shadow-2xs"
+                      style={{
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.bg,
+                        color: theme.colors.text,
+                      }}
+                      title="Copy phone number"
+                    >
+                      {copiedPhone === poc.phone ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
                   </div>
                 </div>
-
-                {/* Right: Submission Action + Arrow */}
-                <div className="flex items-center gap-4 sm:gap-6 shrink-0 sm:pl-4">
-                  {primarySubmission && (
-                    <a
-                      href={primarySubmission.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-xs font-medium uppercase tracking-wider hover:underline transition-colors"
-                      style={{ color: theme.colors.accent }}
-                    >
-                      SUBMISSION ↗
-                    </a>
-                  )}
-
-                  <ArrowRight
-                    className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
-                    style={{ color: theme.colors.accent }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="py-20 text-center">
-          <p className="text-xs uppercase tracking-wider font-normal" style={{ color: theme.colors.muted }}>
-            {searchQuery ? `NO RECORDS MATCHING "${searchQuery}"` : 'NO REGISTRATIONS RECORDED YET.'}
-          </p>
-        </div>
+        /* Core Team View: Tabs, Registrations & Submissions */
+        <>
+          {/* Tabs & Search Area */}
+          <div
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4 mb-8"
+            style={{ borderColor: theme.colors.border }}
+          >
+            {/* Tabs */}
+            <div className="flex items-center gap-6 sm:gap-8 text-xs sm:text-sm font-semibold uppercase tracking-wider">
+              <button
+                onClick={() => setActiveTab('registrations')}
+                className="pb-2 relative cursor-pointer transition-colors"
+                style={{
+                  color: activeTab === 'registrations' ? theme.colors.accent : theme.colors.muted,
+                  fontWeight: activeTab === 'registrations' ? 700 : 500,
+                }}
+              >
+                <span>REGISTRATIONS ({rawRecords.length})</span>
+                {activeTab === 'registrations' && (
+                  <div
+                    className="absolute bottom-[-17px] left-0 right-0 h-[2px]"
+                    style={{ backgroundColor: theme.colors.accent }}
+                  />
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('submissions')}
+                className="pb-2 relative cursor-pointer transition-colors"
+                style={{
+                  color: activeTab === 'submissions' ? theme.colors.accent : theme.colors.muted,
+                  fontWeight: activeTab === 'submissions' ? 700 : 500,
+                }}
+              >
+                <span>SUBMISSIONS ({submissionRecords.length})</span>
+                {activeTab === 'submissions' && (
+                  <div
+                    className="absolute bottom-[-17px] left-0 right-0 h-[2px]"
+                    style={{ backgroundColor: theme.colors.accent }}
+                  />
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('pocs')}
+                className="pb-2 relative cursor-pointer transition-colors"
+                style={{
+                  color: activeTab === 'pocs' ? theme.colors.accent : theme.colors.muted,
+                  fontWeight: activeTab === 'pocs' ? 700 : 500,
+                }}
+              >
+                <span>POCs ({activePocs.length})</span>
+                {activeTab === 'pocs' && (
+                  <div
+                    className="absolute bottom-[-17px] left-0 right-0 h-[2px]"
+                    style={{ backgroundColor: theme.colors.accent }}
+                  />
+                )}
+              </button>
+            </div>
+
+            {/* Minimal Search Bar */}
+            {activeTab !== 'pocs' && (
+              <div className="relative w-full sm:w-72">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: theme.colors.muted }} />
+                <input
+                  type="text"
+                  placeholder="SEARCH NAME, COLLEGE..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full border rounded-lg py-1.5 pl-8 pr-3 text-xs font-normal uppercase outline-hidden tracking-wider shadow-2xs"
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    color: theme.colors.text,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Main Content Area */}
+          {loading ? (
+            <div className="py-24 text-center">
+              <div className="text-xs uppercase tracking-widest font-semibold" style={{ color: theme.colors.muted }}>
+                SYNCING LIVE REGISTRATIONS FROM GOOGLE SHEETS...
+              </div>
+            </div>
+          ) : activeTab === 'pocs' ? (
+            /* POCs View */
+            <div className="space-y-6 max-w-2xl">
+              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: theme.colors.muted }}>
+                POINTS OF CONTACT FOR {event.name}
+              </div>
+              <div className="divide-y" style={{ borderColor: theme.colors.border }}>
+                {activePocs.map((poc, idx) => (
+                  <div
+                    key={idx}
+                    className="py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
+                    style={{ borderTopColor: theme.colors.border }}
+                  >
+                    <div>
+                      <div className="text-xs font-bold tracking-tight mb-1" style={{ color: theme.colors.accent }}>
+                        POC 0{idx + 1}
+                      </div>
+                      <h3 className="text-xl sm:text-2xl font-bold uppercase tracking-tight" style={{ color: theme.colors.text }}>
+                        {poc.name}
+                      </h3>
+                      <div className="text-sm font-normal mt-1" style={{ color: theme.colors.muted }}>
+                        {poc.phone}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 text-xs font-semibold uppercase tracking-wider">
+                      <a
+                        href={`tel:${poc.phone.replace(/\s+/g, '')}`}
+                        className="hover:underline transition-colors"
+                        style={{ color: theme.colors.accent }}
+                      >
+                        CALL ↗
+                      </a>
+                      <span style={{ color: theme.colors.border }}>•</span>
+                      <button
+                        onClick={() => handleCopy(poc.phone)}
+                        className="cursor-pointer hover:underline transition-colors"
+                        style={{ color: theme.colors.text }}
+                      >
+                        {copiedPhone === poc.phone ? (
+                          <span className="text-emerald-600 inline-flex items-center gap-1">
+                            <Check className="w-3 h-3" /> COPIED
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1">
+                            <Copy className="w-3 h-3" /> COPY
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : filteredRecords.length > 0 ? (
+            /* Registrations List */
+            <div className="divide-y" style={{ borderColor: theme.colors.border }}>
+              {filteredRecords.map((record, index) => {
+                const entryNum = (index + 1).toString().padStart(2, '0');
+                const hasSubmission = record.submissions && record.submissions.length > 0;
+                const primarySubmission = hasSubmission ? record.submissions[0] : null;
+
+                return (
+                  <div
+                    key={record.id || index}
+                    onClick={() => onSelectRecord(record)}
+                    className="py-5 sm:py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group transition-all hover:translate-x-1"
+                    style={{ borderTopColor: theme.colors.border }}
+                  >
+                    {/* Left: Number, Name, College */}
+                    <div className="flex items-start gap-4 sm:gap-6 flex-1 min-w-0">
+                      <span
+                        className="text-lg sm:text-2xl font-bold w-8 sm:w-10 shrink-0 group-hover:text-accent transition-colors"
+                        style={{ color: theme.colors.muted }}
+                      >
+                        {entryNum}
+                      </span>
+
+                      <div className="min-w-0 flex-1">
+                        <h2
+                          className="text-base sm:text-xl font-bold tracking-tight uppercase leading-snug group-hover:text-[var(--accent-maroon)] transition-colors"
+                          style={{ color: theme.colors.text }}
+                        >
+                          {record.displayName}
+                        </h2>
+
+                        {record.college && (
+                          <p
+                            className="text-xs sm:text-sm font-normal mt-1 leading-relaxed max-w-2xl truncate sm:whitespace-normal"
+                            style={{ color: theme.colors.muted }}
+                          >
+                            {record.college}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: Submission Action + Arrow */}
+                    <div className="flex items-center gap-4 sm:gap-6 shrink-0 sm:pl-4">
+                      {primarySubmission && (
+                        <a
+                          href={primarySubmission.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs font-semibold uppercase tracking-wider hover:underline transition-colors"
+                          style={{ color: theme.colors.accent }}
+                        >
+                          SUBMISSION ↗
+                        </a>
+                      )}
+
+                      <ArrowRight
+                        className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
+                        style={{ color: theme.colors.accent }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-20 text-center">
+              <p className="text-xs uppercase tracking-wider font-normal" style={{ color: theme.colors.muted }}>
+                {searchQuery ? `NO RECORDS MATCHING "${searchQuery}"` : 'NO REGISTRATIONS RECORDED YET.'}
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
