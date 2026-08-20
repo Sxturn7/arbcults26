@@ -12,22 +12,26 @@ import {
 } from 'lucide-react';
 import { NormalizedRegistration, EventConfig } from '../types.ts';
 import { getEventById } from '../config/events.ts';
+import { AccessRole } from '../config/access.ts';
 import { useTheme } from '../context/ThemeContext.tsx';
 
 interface RegistrationDetailProps {
   record: NormalizedRegistration | null;
   onClose: () => void;
   onOpenPOCs?: (event: EventConfig) => void;
+  accessRole?: AccessRole | null;
 }
 
 export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
   record,
   onClose,
   onOpenPOCs,
+  accessRole,
 }) => {
   const { theme } = useTheme();
   const [showRawData, setShowRawData] = useState(false);
   const [copied, setCopied] = useState(false);
+  const isEC = accessRole === 'ec';
 
   if (!record) return null;
 
@@ -64,7 +68,7 @@ export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl h-full overflow-y-auto p-6 sm:p-12 shadow-2xl flex flex-col justify-between border-l animate-in slide-in-from-right duration-200"
+        className="w-full max-w-2xl h-full overflow-y-auto p-4 sm:p-8 md:p-12 shadow-2xl flex flex-col justify-between border-l animate-in slide-in-from-right duration-200"
         style={{
           backgroundColor: theme.colors.bg,
           borderColor: theme.colors.border,
@@ -72,28 +76,28 @@ export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="space-y-10">
-          {/* Editorial Top Navigation Header */}
+        <div className="space-y-6 sm:space-y-10">
+          {/* Top Navigation Header */}
           <div
-            className="flex items-center justify-between pb-6 border-b"
+            className="flex items-center justify-between pb-4 sm:pb-6 border-b gap-2"
             style={{ borderColor: theme.colors.border }}
           >
             {/* Back to Event */}
             <button
               onClick={onClose}
-              className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wider group transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 sm:gap-2 text-xs font-medium uppercase tracking-wider group transition-colors cursor-pointer min-w-0"
               style={{ color: theme.colors.text }}
             >
-              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
-              <span className="group-hover:underline">← {record.eventName}</span>
+              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform shrink-0" />
+              <span className="group-hover:underline truncate max-w-[140px] sm:max-w-none">← {record.eventName}</span>
             </button>
 
-            {/* Utility Actions: ID, POCs, Share, Close */}
-            <div className="flex items-center gap-4 text-xs font-medium uppercase tracking-wider">
+            {/* Actions */}
+            <div className="flex items-center gap-2.5 sm:gap-4 text-xs font-medium uppercase tracking-wider shrink-0">
               {eventConfig && onOpenPOCs && (
                 <button
                   onClick={() => onOpenPOCs(eventConfig)}
-                  className="hover:underline cursor-pointer transition-colors"
+                  className="hover:underline cursor-pointer transition-colors hidden sm:inline"
                   style={{ color: theme.colors.accent }}
                 >
                   POCs ({eventConfig.pocs.length}) ↗
@@ -102,58 +106,66 @@ export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
 
               <button
                 onClick={handleCopySummary}
-                title="Copy Record Summary"
-                className="hover:underline cursor-pointer inline-flex items-center gap-1 transition-colors"
+                className="hover:underline cursor-pointer transition-colors inline-flex items-center gap-1"
                 style={{ color: theme.colors.muted }}
+                title="Copy Registration Details"
               >
                 {copied ? (
-                  <span className="text-emerald-600 inline-flex items-center gap-1">
+                  <span className="text-emerald-600 inline-flex items-center gap-1 font-semibold">
                     <Check className="w-3 h-3" /> COPIED
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1">
-                    <Share2 className="w-3 h-3" /> SHARE ↗
+                    <Share2 className="w-3 h-3" /> SHARE
                   </span>
                 )}
               </button>
 
               <button
                 onClick={onClose}
-                className="p-1 cursor-pointer transition-colors hover:opacity-70"
+                className="hover:opacity-70 transition-opacity p-1 cursor-pointer"
                 style={{ color: theme.colors.muted }}
-                aria-label="Close detail panel"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Record Metadata Line */}
-          <div className="flex flex-wrap items-center gap-3 text-xs font-normal" style={{ color: theme.colors.muted }}>
-            <span className="font-medium" style={{ color: theme.colors.text }}>{record.id}</span>
-            {record.timestamp && (
-              <>
-                <span>•</span>
-                <span>{record.timestamp}</span>
-              </>
-            )}
-            <span>•</span>
-            <span className="uppercase font-medium" style={{ color: theme.colors.accent }}>
-              {record.type.toUpperCase()}
-            </span>
-          </div>
+          {/* Registration Header */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <span
+                className="text-xs font-semibold tracking-wider uppercase px-2 py-0.5 rounded border"
+                style={{
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surface,
+                  color: theme.colors.accent,
+                }}
+              >
+                {record.type}
+              </span>
 
-          {/* Dominant Content: Participant / Team Name (Huge Outfit 700, no box) */}
-          <div>
+              {record.teamName && (
+                <span className="text-xs font-medium uppercase tracking-wider" style={{ color: theme.colors.muted }}>
+                  TEAM: {record.teamName}
+                </span>
+              )}
+
+              <span className="text-xs font-normal" style={{ color: theme.colors.muted }}>
+                ID: {record.id}
+              </span>
+            </div>
+
+            {/* Display Name */}
             <h1
-              className="text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight uppercase leading-none break-words"
+              className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight uppercase leading-tight break-words pt-1"
               style={{ color: theme.colors.text }}
             >
               {record.displayName}
             </h1>
           </div>
 
-          {/* Institution / College (Whitespace + Typography, No Boxes) */}
+          {/* Institution / College */}
           {record.college && (
             <div className="space-y-1.5 pt-2">
               <div
@@ -176,7 +188,7 @@ export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
             </div>
           )}
 
-          {/* Contact Details (Clean Aligned Information) */}
+          {/* Contact Details */}
           {((record.contacts && record.contacts.length > 0) || (record.emails && record.emails.length > 0) || record.leader) && (
             <div className="space-y-4 pt-2">
               <div
@@ -236,40 +248,42 @@ export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
             </div>
           )}
 
-          {/* Submissions Section (Prominent Text Action, No Raw URL) */}
-          <div className="space-y-3 pt-2">
-            <div
-              className="text-xs font-medium uppercase tracking-wider"
-              style={{ color: theme.colors.muted }}
-            >
-              SUBMISSION
+          {/* Submissions Section (Only for Core Team, Hidden for Extended Core) */}
+          {!isEC && (
+            <div className="space-y-3 pt-2">
+              <div
+                className="text-xs font-medium uppercase tracking-wider"
+                style={{ color: theme.colors.muted }}
+              >
+                SUBMISSION
+              </div>
+
+              {hasSubmissions ? (
+                <div className="space-y-3">
+                  {record.submissions.map((sub, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-4">
+                      <a
+                        href={sub.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm sm:text-base font-semibold uppercase hover:underline inline-flex items-center gap-2 transition-colors"
+                        style={{ color: theme.colors.accent }}
+                      >
+                        <span>{getSubmissionLabel(sub)}</span>
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs font-normal" style={{ color: theme.colors.muted }}>
+                  NO DIGITAL SUBMISSION RECORDED
+                </div>
+              )}
             </div>
+          )}
 
-            {hasSubmissions ? (
-              <div className="space-y-3">
-                {record.submissions.map((sub, idx) => (
-                  <div key={idx} className="flex items-center justify-between gap-4">
-                    <a
-                      href={sub.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm sm:text-base font-semibold uppercase hover:underline inline-flex items-center gap-2 transition-colors"
-                      style={{ color: theme.colors.accent }}
-                    >
-                      <span>{getSubmissionLabel(sub)}</span>
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs font-normal" style={{ color: theme.colors.muted }}>
-                NO DIGITAL SUBMISSION RECORDED
-              </div>
-            )}
-          </div>
-
-          {/* Registered Members Section (Clean list with thin dividers) */}
+          {/* Registered Members Section */}
           {record.participants && record.participants.length > 0 && (
             <div className="space-y-4 pt-4 border-t" style={{ borderColor: theme.colors.border }}>
               <div
@@ -328,37 +342,39 @@ export const RegistrationDetail: React.FC<RegistrationDetailProps> = ({
             </div>
           )}
 
-          {/* Raw Spreadsheet Data (Hidden behind tiny admin disclosure) */}
-          <div className="pt-6 border-t" style={{ borderColor: theme.colors.border }}>
-            <button
-              onClick={() => setShowRawData(!showRawData)}
-              className="text-xs font-medium uppercase tracking-wider cursor-pointer hover:underline inline-flex items-center gap-1.5 transition-colors"
-              style={{ color: theme.colors.muted }}
-            >
-              <span>{showRawData ? 'HIDE RAW SOURCE DATA -' : 'VIEW RAW SOURCE DATA +'}</span>
-              {showRawData ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            {showRawData && (
-              <div
-                className="mt-4 p-4 border text-xs space-y-2 overflow-x-auto"
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  borderColor: theme.colors.border,
-                }}
+          {/* Raw Spreadsheet Data (Only for Core Team) */}
+          {!isEC && (
+            <div className="pt-6 border-t" style={{ borderColor: theme.colors.border }}>
+              <button
+                onClick={() => setShowRawData(!showRawData)}
+                className="text-xs font-medium uppercase tracking-wider cursor-pointer hover:underline inline-flex items-center gap-1.5 transition-colors"
+                style={{ color: theme.colors.muted }}
               >
-                {Object.entries(record.rawData).map(([key, val]) => (
-                  <div key={key} className="border-b pb-1" style={{ borderColor: theme.colors.border }}>
-                    <span className="font-medium" style={{ color: theme.colors.muted }}>{key}: </span>
-                    <span className="break-all font-normal" style={{ color: theme.colors.text }}>{val || 'N/A'}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                <span>{showRawData ? 'HIDE RAW SOURCE DATA -' : 'VIEW RAW SOURCE DATA +'}</span>
+                {showRawData ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+
+              {showRawData && (
+                <div
+                  className="mt-4 p-4 border text-xs space-y-2 overflow-x-auto"
+                  style={{
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                  }}
+                >
+                  {Object.entries(record.rawData).map(([key, val]) => (
+                    <div key={key} className="border-b pb-1" style={{ borderColor: theme.colors.border }}>
+                      <span className="font-medium" style={{ color: theme.colors.muted }}>{key}: </span>
+                      <span className="break-all font-normal" style={{ color: theme.colors.text }}>{val || 'N/A'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Footer Navigation (Clean Back Link, No Giant Black Button) */}
+        {/* Footer Navigation */}
         <div
           className="pt-10 mt-10 border-t flex items-center justify-between text-xs font-medium uppercase tracking-wider"
           style={{ borderColor: theme.colors.border }}
