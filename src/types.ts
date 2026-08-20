@@ -12,6 +12,7 @@ export interface EventConfig {
   sheetId: string | null;
   formUrl: string | null;
   unstopUrl: string;
+  ruleBookUrl?: string;
   pocs: POC[];
   displayMode: DisplayMode;
   categoryHint?: string;
@@ -67,6 +68,7 @@ export interface EventDataResponse {
   sheetUrl: string | null;
   unstopUrl: string;
   formUrl: string | null;
+  ruleBookUrl?: string | null;
   pocs: POC[];
   error?: string;
 }
